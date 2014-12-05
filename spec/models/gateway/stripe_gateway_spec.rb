@@ -16,21 +16,81 @@ describe Spree::Gateway::StripeGateway do
 
   let(:provider) do
     double('provider').tap do |p|
-      p.stub(:purchase)
-      p.stub(:authorize)
-      p.stub(:capture)
+      allow(p).to receive(:purchase)
+      allow(p).to receive(:authorize)
+      allow(p).to receive(:capture)
     end
   end
 
   before do
     subject.preferences = { secret_key: secret_key }
-    subject.stub(:options_for_purchase_or_auth).and_return(['money','cc','opts'])
-    subject.stub(:provider).and_return provider
+    allow(subject).to receive(:options_for_purchase_or_auth) { ['money','cc','opts'] }
+    allow(subject).to receive(:provider) { provider }
   end
 
   describe '#create_profile' do
     before do
-      payment.source.stub(:update_attributes!)
+      allow(payment.source).to receive(:update_attributes!)
+    end
+
+    context 'when Stripe returns a response' do
+      let(:bill_address) { nil }
+      let(:stripe_response_params) do
+        {
+          'id' => 'cus_FOO',
+          'default_card' => 'card_BAR',
+          'cards' => {
+            'data' => [
+              {
+                "id"=>"card_BAR",
+                "object"=>"card",
+                "last4"=>"4242",
+                "brand"=>"Visa",
+                "funding"=>"credit",
+                "exp_month"=>1,
+                "exp_year"=>2019,
+                "fingerprint"=>"H2k64481Ex8hSCgC",
+                "country"=>"US",
+                "name"=>"Mister Spree",
+                "address_line1"=>"123 Street",
+                "address_city"=>"New York",
+                "address_state"=>"New York",
+                "address_zip"=>"12345",
+                "address_country"=>"United States",
+                "cvc_check"=>"pass",
+                "address_line1_check"=>"pass",
+                "address_zip_check"=>"pass",
+                "dynamic_last4"=>nil,
+                "customer"=>"cus_FOO",
+                "type"=>"Visa"
+              },
+              {
+                "id" => "some other card"
+              }
+            ]
+          }
+        }
+      end
+
+      let(:stripe_response) { double(params: stripe_response_params, success?: true) }
+
+      before do
+        expect(subject.provider).to receive(:store) { stripe_response }
+      end
+
+      it 'populates payment source with Stripe active_card information' do
+        expect(payment.source).to receive(:update_attributes!).with(
+          hash_including(
+            last_digits: '4242',
+            month: 1,
+            year: 2019,
+            name: 'Mister Spree',
+            gateway_customer_profile_id: 'cus_FOO',
+            gateway_payment_profile_id: 'card_BAR'
+          )
+        )
+        subject.create_profile payment
+      end
     end
 
     context 'with an order that has a bill address' do
@@ -80,7 +140,7 @@ describe Spree::Gateway::StripeGateway do
       context "correcting the card type" do
         before do
           # We don't care about this method for these tests
-          subject.provider.stub(:store).and_return(double.as_null_object)
+          allow(subject.provider).to receive(:store) { double.as_null_object }
         end
 
         it "converts 'American Express' to 'american_express'" do
@@ -143,9 +203,9 @@ describe Spree::Gateway::StripeGateway do
     let(:gateway) do
       gateway = described_class.new(:environment => 'test', :active => true)
       gateway.set_preference :secret_key, secret_key
-      gateway.stub(:options_for_purchase_or_auth).and_return(['money','cc','opts'])
-      gateway.stub(:provider).and_return provider
-      gateway.stub :source_required => true
+      allow(gateway).to receive(:options_for_purchase_or_auth) { ['money','cc','opts'] }
+      allow(gateway).to receive(:provider) { provider }
+      allow(gateway).to receive(:source_required) { true }
       gateway
     end
 
@@ -179,7 +239,7 @@ describe Spree::Gateway::StripeGateway do
     end
 
     it 'gets correct amount' do
-      provider.should_receive(:capture).with(9855,'12345',anything).and_return(success_response)
+      expect(provider).to receive(:capture).with(9855,'12345',anything) { success_response }
     end
   end
 end

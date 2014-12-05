@@ -52,10 +52,17 @@ module Spree
 
       response = provider.store(source, options)
       if response.success?
-        payment.source.update_attributes!({ 
-          :cc_type => payment.source.cc_type, # side-effect of update_source!
-          :gateway_customer_profile_id => response.params['id'],
-          :gateway_payment_profile_id => response.params['default_card']
+        # The active card is now the default card in the cards list, not the active_card JSON
+        # https://stripe.com/docs/upgrades#2013-07-05
+        active_card  = response.params['cards']['data'].detect { |card| card['id'] == response.params['default_card']}
+        payment.source.update_attributes!({
+          cc_type: payment.source.cc_type, # side-effect of update_source!
+          gateway_customer_profile_id: response.params['id'],
+          gateway_payment_profile_id: active_card['id'],
+          month: active_card['exp_month'],
+          year: active_card['exp_year'],
+          last_digits: active_card['last4'],
+          name: active_card['name']
         })
 
       else
